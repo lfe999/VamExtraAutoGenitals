@@ -52,7 +52,7 @@ namespace LFE
                 "Inward Exaggeration",
                 0f,
                 (val) => {
-                    _animators.ForEach(a => a.InwardMax += val);
+                    _animators.ForEach(a => a.InwardMax = a.InwardMaxDefault + val);
                 },
                 0, 1);
             InwardExaggerationStorable.val = 0;
@@ -63,7 +63,7 @@ namespace LFE
                 "Outward Exaggeration",
                 0f,
                 (val) => {
-                    _animators.ForEach(a => a.OutwardMax += val);
+                    _animators.ForEach(a => a.OutwardMax = a.OutwardMaxDefault + val);
                 },
                 0, 1);
             OutwardExaggerationStorable.val = 0;
@@ -145,7 +145,9 @@ namespace LFE
         public float MorphRestingValue { get; set; }
         public bool IsInwardMorph { get; set; }
         public float InwardMax { get; set; }
+        public float InwardMaxDefault { get; private set; }
         public float OutwardMax { get; set; }
+        public float OutwardMaxDefault { get; private set; }
         public Func<float, float> Easing { get; private set; }
         public bool Enabled { get; set; }
 
@@ -166,8 +168,10 @@ namespace LFE
             Morph = morph;
             MorphRestingValue = morphRestingValue ?? MorphDefault;
             IsInwardMorph = isInwardMorph;
-            InwardMax = inwardMax ?? Mathf.Abs((MorphDefault - (IsInwardMorph ? Morph.max : Morph.min)));
-            OutwardMax = outwardMax ?? Mathf.Abs((MorphDefault - (IsInwardMorph ? Morph.min : Morph.max)));
+            InwardMaxDefault = inwardMax ?? Mathf.Abs((MorphDefault - (IsInwardMorph ? Morph.max : Morph.min)));
+            InwardMax = InwardMaxDefault;
+            OutwardMaxDefault = outwardMax ?? Mathf.Abs((MorphDefault - (IsInwardMorph ? Morph.min : Morph.max)));
+            OutwardMax = OutwardMaxDefault;
             Enabled = enabled;
             Easing = easing ?? ((p) => 1);
 
