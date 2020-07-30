@@ -9,7 +9,7 @@ Adjust the pupil size based on the best guess of the light hitting close to the 
 
 Requires VaM 1.19 or newer.
 
-Download `LFE.ExtraAutoGenitals0.(version).var` from [Releases](https://github.com/lfe999/VamAutoInsertionMorphs/releases)
+Download `LFE.ExtraAutoGenitals0.(version).var` from [Releases](https://github.com/lfe999/VamExtraAutoGenitals/releases)
 
 Save the `.var` file in the `(VAM_ROOT)\AddonPackages`.
 
