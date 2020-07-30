@@ -195,10 +195,11 @@ namespace LFE
 
         public float? NextMorphValue(float? velocityRaw, float friction)
         {
+            // TODO: this is broken find a solution for adjusting the morph resting value that works
             // did the user change the morph by hand? allow it and set it as new resting
-            if(_morphLastSavedValue != MorphCurrent) {
-                MorphRestingValue = MorphCurrent;
-            }
+            // if(_morphLastSavedValue != MorphCurrent) {
+            //     MorphRestingValue = MorphCurrent;
+            // }
 
             friction = Mathf.Clamp(friction, 0, 1);
             var morphTargetMin = MorphRestingValue - (IsInwardMorph ? OutwardMax : InwardMax);
