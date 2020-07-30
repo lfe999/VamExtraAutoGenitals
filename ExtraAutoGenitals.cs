@@ -25,6 +25,10 @@ namespace LFE
 
         public override void Init()
         {
+            if(containingAtom.type != "Person") {
+                throw new Exception("This must be added to a Person");
+            }
+
             _labiaTrigger = containingAtom.GetComponentsInChildren<CollisionTrigger>().FirstOrDefault(t => t.name == "LabiaTrigger");
             _labiaHandler = _labiaTrigger.gameObject.GetComponentInChildren<CollisionTriggerEventHandler>();
             _abdomen = containingAtom.freeControllers.FirstOrDefault(fc => fc.name == "abdomen2Control");
@@ -155,6 +159,9 @@ namespace LFE
         private LabiaAnimator(Atom atom, string morphName, bool isInwardMorph = false, float? inwardMax = null, float? outwardMax = null, float? morphRestingValue = null, Func<float, float> easing = null, bool enabled = true)
         {
             DAZMorph morph = ((DAZCharacterSelector)atom.GetStorableByID("geometry")).morphsControlUI.GetMorphByDisplayName(morphName);
+            if(morph == null) {
+                throw new ArgumentException($"'{morphName}' could not be found", nameof(morphName));
+            }
 
             Morph = morph;
             MorphRestingValue = morphRestingValue ?? MorphDefault;
