@@ -152,10 +152,8 @@ namespace LFE
         private float _smoothDampVelocity3;
         private float _morphLastSavedValue;
 
-        private LabiaAnimator(Atom atom, string morphName, bool isInwardMorph = false, float? inwardMax = null, float? outwardMax = null, float? morphRestingValue = null, Func<float, float> easing = null, bool enabled = true)
+        private LabiaAnimator(Atom atom, DAZMorph morph, bool isInwardMorph = false, float? inwardMax = null, float? outwardMax = null, float? morphRestingValue = null, Func<float, float> easing = null, bool enabled = true)
         {
-            DAZMorph morph = ((DAZCharacterSelector)atom.GetStorableByID("geometry")).morphsControlUI.GetMorphByDisplayName(morphName);
-
             Morph = morph;
             MorphRestingValue = morphRestingValue ?? MorphDefault;
             IsInwardMorph = isInwardMorph;
@@ -173,7 +171,13 @@ namespace LFE
         {
             try
             {
-                return new LabiaAnimator(atom, morphName, isInwardMorph, inwardMax, outwardMax, morphRestingValue, easing, enabled);
+                DAZMorph morph = ((DAZCharacterSelector)atom.GetStorableByID("geometry")).morphsControlUI.GetMorphByDisplayName(morphName);
+                if(morph != null) {
+                    return new LabiaAnimator(atom, morph, isInwardMorph, inwardMax, outwardMax, morphRestingValue, easing, enabled);
+                }
+                else {
+                    return null;
+                }
             }
             catch (Exception e)
             {
