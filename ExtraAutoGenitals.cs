@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using SimpleJSON;
 
 namespace LFE
 {
@@ -14,72 +15,79 @@ namespace LFE
         public JSONStorableFloat OutwardExaggerationStorable;
 
 
+        private bool _initComplete = false;
         private float _friction;
-        private List<LabiaAnimator> _animators;
+        private static List<LabiaAnimator> _animators = new List<LabiaAnimator>();
+        private object _settingsLock = new object();
+        private static List<MorphSettings> _settings = new List<MorphSettings>();
         private FreeControllerV3 _abdomen;
         private CollisionTriggerEventHandler _labiaHandler;
         private CollisionTrigger _labiaTrigger;
         private float? _previousLabiaDistance = null;
         private float? _previousVelocity = null;
 
+        public void DeleteMorphSettings(string morphName) {
+            lock(_settingsLock) {
+                var toDelete = _settings.FirstOrDefault(s => s.MorphName.Equals(morphName));
+                if(toDelete != null) {
+                    _settings.Remove(toDelete);
+
+                    toDelete.Destroy();
+                    toDelete = null;
+                }
+            }
+        }
 
         public override void Init()
         {
+            _initComplete = false;
             _labiaTrigger = containingAtom.GetComponentsInChildren<CollisionTrigger>().FirstOrDefault(t => t.name == "LabiaTrigger");
             _labiaHandler = _labiaTrigger.gameObject.GetComponentInChildren<CollisionTriggerEventHandler>();
             _abdomen = containingAtom.freeControllers.FirstOrDefault(fc => fc.name == "abdomen2Control");
-            _animators = new List<LabiaAnimator>();
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Labia minora-size", isInwardMorph: false, inwardMax: 0.7f, outwardMax: 2));
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Labia minora-style1", isInwardMorph: false, inwardMax: 0.7f, outwardMax: 2f));
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Labia minora-exstrophy", isInwardMorph: true, inwardMax: 0.1f, outwardMax: 1f));
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Labia majora-relaxation", isInwardMorph: false, inwardMax: 1f, outwardMax: 0f));
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Gen_Innie", isInwardMorph: true, inwardMax: 0.10f, outwardMax: 0.25f, easing: (p) => p * p * p));
-            _animators.Add(LabiaAnimator.Create(containingAtom, "Gens In - Out", isInwardMorph: true, inwardMax: 1.0f, outwardMax: 0f, enabled: false));
-            _animators = _animators.Where(a => a != null).ToList(); // remove any null entries
-            _animators.ForEach(a => a.Morph.SetDefaultValue());
 
+            // header
+            var morphControlUI = ((DAZCharacterSelector)containingAtom.GetStorableByID("geometry")).morphsControlUI;
 
-            FrictionStorable = new JSONStorableFloat("Friction", 1f, (f) => { _friction = f; }, 0, 1);
-            _friction = FrictionStorable.val;
-            CreateSlider(FrictionStorable);
-            RegisterFloat(FrictionStorable);
+            var morphNames = morphControlUI.GetMorphDisplayNames().OrderBy(n => n).ToList();
+            var addMorphStorable = new JSONStorableStringChooser("Morph", morphNames, "", "Morph");
+            var popup = CreateFilterablePopup(addMorphStorable);
+            var add = CreateButton("Add", rightSide: false);
+            add.buttonColor = Color.green;
+            add.button.onClick.AddListener(() => {
+                var morphName = addMorphStorable.val;
+                if(morphName != addMorphStorable.defaultVal) {
+                    lock(_settingsLock) {
+                        var alreadyAdded = _settings.Count(s => s.MorphName.Equals(morphName)) > 0;
+                        if(!alreadyAdded) {
+                            _settings.Add(MorphSettings.Create(this, morphName, isInwardMorph: false, inwardMax: 0.5f, outwardMax: 0.5f));
+                        }
+                        addMorphStorable.SetValToDefault();
+                    }
+                }
+            });
 
-            InwardExaggerationStorable = new JSONStorableFloat(
-                "Inward Exaggeration",
-                0f,
-                (val) => {
-                    _animators.ForEach(a => a.InwardMax += val);
-                },
-                0, 1);
-            InwardExaggerationStorable.val = 0;
-            CreateSlider(InwardExaggerationStorable);
-            RegisterFloat(InwardExaggerationStorable);
+            CreateSpacer(rightSide: true).height = popup.height;
+            CreateSpacer(rightSide: true).height = add.height;
 
-            OutwardExaggerationStorable = new JSONStorableFloat(
-                "Outward Exaggeration",
-                0f,
-                (val) => {
-                    _animators.ForEach(a => a.OutwardMax += val);
-                },
-                0, 1);
-            OutwardExaggerationStorable.val = 0;
-            CreateSlider(OutwardExaggerationStorable);
-            RegisterFloat(OutwardExaggerationStorable);
+            /// blank space below header
+            CreateSpacer(rightSide: false).height = 50;
+            CreateSpacer(rightSide: true).height = 50;
 
-            foreach (var a in _animators)
-            {
-                var storable = new JSONStorableBool(a.Morph.displayName, a.Enabled, (b) => {
-                    a.Enabled = b;
-                    a.Morph.SetDefaultValue();
-                });
-                storable.val = a.Enabled;
-                CreateToggle(storable, rightSide: true);
-                RegisterBool(storable);
-            }
+            // this will run before loading settings from json!
+            SetupDefaultSettings();
+
+            _initComplete = true;
+
         }
 
         void Update()
         {
+            if(!_initComplete) {
+                return;
+            }
+            if(_settings == null) {
+                return;
+            }
             if (!isActiveAndEnabled || SuperController.singleton.freezeAnimation)
             {
                 return;
@@ -95,16 +103,16 @@ namespace LFE
 
                 if (_previousLabiaDistance.HasValue && _previousVelocity.HasValue)
                 {
-                    foreach (var a in _animators)
+                    foreach (var a in _settings)
                     {
-                        if (!a.Enabled || _friction <= 0)
+                        if (!a.Enabled.val || a.Friction.val <= 0)
                         {
                             continue;
                         }
-                        var newMorphValue = a.NextMorphValue(colliders.Count > 0 ? (float?)towardsAbdomenVelocity : null, _friction);
+                        var newMorphValue = a.Animator.NextMorphValue(colliders.Count > 0 ? (float?)towardsAbdomenVelocity : null, a.Friction.val);
                         if (newMorphValue.HasValue)
                         {
-                            a.Morph.morphValueAdjustLimits = newMorphValue.Value;
+                            a.Animator.Morph.morphValueAdjustLimits = newMorphValue.Value;
                         }
                     }
                 }
@@ -122,14 +130,185 @@ namespace LFE
             }
         }
 
+        float defaultFriction = 1f;
+        float defaultInwardExaggeration = 0f;
+        float defaultOutwardExaggeration = 0f;
+        Dictionary<string, bool> defaultEnabled = new Dictionary<string, bool>() {
+            { "Labia minora-size", true },
+            { "Labia minora-style1", true },
+            { "Labia minora-exstrophy", true },
+            { "Labia majora-relaxation", true },
+            { "Gen_Innie", true },
+            { "Gens In - Out", false}
+        };
+
+        public const string JSON_CONFIG_PARENT = "MorphSettings";
+        public const string JSON_CONFIG_NAME = "MorphName";
+        public const string JSON_CONFIG_IN_EXAG = "Inward Exaggeration";
+        public const string JSON_CONFIG_OUT_EXAG = "Outward Exaggeration";
+        public const string JSON_CONFIG_IN_MAX = "Inward Max";
+        public const string JSON_CONFIG_OUT_MAX = "Outward Max";
+        public const string JSON_CONFIG_FRICTION = "Friction";
+        public const string JSON_CONFIG_REVERSE = "Reverse";
+        public const string JSON_CONFIG_ENABLED = "Enabled";
+
+        public const string JSON_V1_FRICTION = "Friction";
+        public const string JSON_V1_IN_EXAG = "Inward Exaggeration";
+        public const string JSON_V1_OUT_EXAG = "Outward Exaggeration";
+
+        public override void RestoreFromJSON(JSONClass jc, bool restorePhysical = true, bool restoreAppearance = true, JSONArray presetAtoms = null, bool setMissingToDefault = true)
+        {
+            _initComplete = false;
+            base.RestoreFromJSON(jc, restorePhysical, restoreAppearance, presetAtoms, setMissingToDefault);
+
+            try {
+                if(jc.HasKey(JSON_CONFIG_PARENT)) {
+                    // wipe out any settings that may have been created
+                    lock(_settingsLock) {
+                        var names = _settings.Select(s => s.MorphName).ToList();
+                        foreach(var n in names) {
+                            DeleteMorphSettings(n);
+                        }
+                    }
+
+                    var newSettings = new List<MorphSettings>();
+                    foreach(SimpleJSON.JSONClass c in jc[JSON_CONFIG_PARENT].AsArray) {
+                        var name = c[JSON_CONFIG_NAME];
+                        var isInwardMorph = c[JSON_CONFIG_REVERSE]?.AsBool ?? false;
+                        var inwardMax = c[JSON_CONFIG_IN_MAX]?.AsFloat ?? 0.25f;
+                        var outwardMax = c[JSON_CONFIG_OUT_MAX]?.AsFloat ?? 0.25f;
+                        var inwardExaggeration = c[JSON_CONFIG_IN_EXAG]?.AsFloat ?? 0;
+                        var outwardExaggeration = c[JSON_CONFIG_OUT_EXAG]?.AsFloat ?? 0;
+                        var friction = c[JSON_CONFIG_FRICTION]?.AsFloat ?? 1;
+                        var enabled = c[JSON_CONFIG_ENABLED]?.AsBool ?? true;
+
+                        var setting = MorphSettings.Create(
+                            this, name,
+                            enabled: enabled,
+                            isInwardMorph: isInwardMorph,
+                            friction: friction,
+                            inwardMax: inwardMax,
+                            outwardMax: outwardMax,
+                            inwardExaggeration: inwardExaggeration,
+                            outwardExaggeration: outwardExaggeration
+                        );
+                        if(setting != null) {
+                            newSettings.Add(setting);
+                        }
+                    }
+                    lock(_settingsLock) {
+                        _settings = newSettings;
+                    }
+                }
+                else {
+                    // legacy settings? override some defaults
+                    // "id" : "plugin#1_LFE.ExtraAutoGenitals", 
+                    // "Labia minora-style1" : "false", 
+                    // "Labia majora-relaxation" : "false", 
+                    // "Friction" : "0.6275478", 
+                    // "Inward Exaggeration" : "0.06887849", 
+                    // "Outward Exaggeration" : "0.08138113"
+
+                    lock(_settingsLock) {
+                        if(jc.HasKey(JSON_V1_FRICTION)) {
+                            foreach(var s in _settings) {
+                                s.Friction.val = jc[JSON_V1_FRICTION].AsFloat;
+                            }
+                        }
+                        if(jc.HasKey(JSON_V1_IN_EXAG)) {
+                            foreach(var s in _settings) {
+                                s.InwardExaggeration.val = jc[JSON_V1_IN_EXAG].AsFloat;
+                            }
+                        }
+                        if(jc.HasKey(JSON_V1_OUT_EXAG)) {
+                            foreach(var s in _settings) {
+                                s.OutwardExaggeration.val = jc[JSON_V1_OUT_EXAG].AsFloat;
+                            }
+                        }
+                        foreach(var kv in defaultEnabled) {
+                            foreach(var s in _settings) {
+                                if(jc.HasKey(s.MorphName)) {
+                                    s.Enabled.val = jc[s.MorphName].AsBool;
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+            catch(Exception e) {
+                SuperController.LogError($"{e}");
+            }
+            finally {
+                _initComplete = true;
+            }
+        }
+
+        private void SetupDefaultSettings() {
+            // create default settings
+            lock(_settingsLock) {
+                if(_settings.Count == 0) {
+                    _settings.Add(MorphSettings.Create(this, "Labia minora-size",
+                        enabled: defaultEnabled["Labia minora-size"],
+                        isInwardMorph: false, inwardMax: 0.7f, outwardMax: 2f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration));
+                    _settings.Add(MorphSettings.Create(this, "Labia minora-style1",
+                        enabled: defaultEnabled["Labia minora-style1"],
+                        isInwardMorph: false, inwardMax: 0.7f, outwardMax: 2f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration));
+                    _settings.Add(MorphSettings.Create(this, "Labia minora-exstrophy",
+                        enabled: defaultEnabled["Labia minora-exstrophy"],
+                        isInwardMorph: true, inwardMax: 0.1f, outwardMax: 1f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration));
+                    _settings.Add(MorphSettings.Create(this, "Labia majora-relaxation",
+                        enabled: defaultEnabled["Labia majora-relaxation"],
+                        isInwardMorph: false, inwardMax: 1f, outwardMax: 0f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration));
+                    _settings.Add(MorphSettings.Create(this, "Gen_Innie",
+                        enabled: defaultEnabled["Gen_Innie"],
+                        isInwardMorph: true, inwardMax: 0.10f, outwardMax: 0.25f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration)); // TODO: easing p^3
+                    _settings.Add(MorphSettings.Create(this, "Gens In - Out",
+                        enabled: defaultEnabled["Gens In - Out"],
+                        isInwardMorph: true, inwardMax: 1.0f, outwardMax: 0f, friction: defaultFriction, inwardExaggeration: defaultInwardExaggeration, outwardExaggeration: defaultOutwardExaggeration));
+                }
+                _settings = _settings.Where(a => a != null).ToList(); // remove any null entries
+            }
+        }
+
+        // saving scene
+        public override JSONClass GetJSON(bool includePhysical = true, bool includeAppearance = true, bool forceStore = false) {
+            _initComplete = false;
+            var json = base.GetJSON(includePhysical, includeAppearance, true);
+
+            var configs = new SimpleJSON.JSONArray();
+            lock(_settingsLock) {
+                foreach(var s in _settings) {
+                    var config = new SimpleJSON.JSONClass();
+                    config[JSON_CONFIG_NAME] = s.MorphName;
+                    config[JSON_CONFIG_ENABLED].AsBool = s.Enabled.val;
+                    config[JSON_CONFIG_FRICTION].AsFloat = s.Friction.val;
+                    config[JSON_CONFIG_IN_EXAG].AsFloat = s.InwardExaggeration.val;
+                    config[JSON_CONFIG_OUT_EXAG].AsFloat = s.OutwardExaggeration.val;
+                    config[JSON_CONFIG_IN_MAX].AsFloat = s.InwardMax.val;
+                    config[JSON_CONFIG_OUT_MAX].AsFloat = s.OutwardMax.val;
+                    config[JSON_CONFIG_REVERSE].AsBool = s.Reverse.val;
+                    configs.Add(config);
+                }
+            }
+            json[JSON_CONFIG_PARENT] = configs;
+            _initComplete = true;
+            return json;
+        }
+
+
         void OnDestroy()
         {
-            foreach (var a in _animators) { a?.Morph?.SetDefaultValue(); }
+            foreach (var a in _settings) { a?.Animator?.Morph?.SetDefaultValue(); }
+        }
+
+        void OnDisable() {
+            foreach (var a in _settings) { a?.Animator?.Morph?.SetDefaultValue(); }
         }
 
     }
 
-    internal class LabiaAnimator
+    public class LabiaAnimator
     {
         const int VELOCITY_SMOOTH_LOOKBACK = 64;
         const float VELOCITY_SMOOTH_STDDEV_MAX = 2f;
@@ -141,7 +320,9 @@ namespace LFE
         public float MorphRestingValue { get; set; }
         public bool IsInwardMorph { get; set; }
         public float InwardMax { get; set; }
+        public float InwardExaggeration { get; set; }
         public float OutwardMax { get; set; }
+        public float OutwardExaggeration { get; set; }
         public Func<float, float> Easing { get; private set; }
         public bool Enabled { get; set; }
 
@@ -181,7 +362,7 @@ namespace LFE
             }
             catch (Exception e)
             {
-                SuperController.LogMessage(e.Message);
+                SuperController.LogError(e.Message);
                 return null;
             }
         }
@@ -194,8 +375,8 @@ namespace LFE
             }
 
             friction = Mathf.Clamp(friction, 0, 1);
-            var morphTargetMin = MorphRestingValue - (IsInwardMorph ? OutwardMax : InwardMax);
-            var morphTargetMax = MorphRestingValue + (IsInwardMorph ? InwardMax : OutwardMax);
+            var morphTargetMin = MorphRestingValue - (IsInwardMorph ? OutwardMax + OutwardExaggeration : InwardMax + InwardExaggeration);
+            var morphTargetMax = MorphRestingValue + (IsInwardMorph ? InwardMax + InwardMax : OutwardMax + OutwardExaggeration);
             var velocity = Mathf.Clamp(velocityRaw ?? 0, -1, 1);
 
             if (!Enabled || friction <= 0)
@@ -262,6 +443,160 @@ namespace LFE
             }
 
             return false;
+        }
+    }
+
+    public class MorphSettings {
+        public JSONStorableFloat InwardMax;
+        public JSONStorableFloat InwardExaggeration;
+        public JSONStorableFloat OutwardMax;
+        public JSONStorableFloat OutwardExaggeration;
+        public JSONStorableFloat Friction;
+        public JSONStorableBool Reverse;
+        public JSONStorableBool Enabled;
+        public string MorphName;
+        public LabiaAnimator Animator = null;
+
+        private ExtraAutoGenitals _plugin;
+        private Color transparent = new Color(0, 0, 0, 0.1f);
+        private List<UIDynamic> _uiElements = new List<UIDynamic>();
+
+        private MorphSettings(ExtraAutoGenitals plugin, DAZMorph morph) {
+            _plugin = plugin;
+
+            MorphName = morph.displayName;
+
+            Animator = LabiaAnimator.Create(plugin.containingAtom, morph.displayName, isInwardMorph: false, inwardMax: morph.min, outwardMax: morph.max);
+
+            Enabled = new JSONStorableBool($"{morph.displayName}", true, (val) => {
+                Animator.Enabled = val;
+                Animator.Morph.SetDefaultValue();
+            });
+            InwardExaggeration = new JSONStorableFloat(
+                "Inward Exaggeration", 0,
+                (val) => {
+                    Animator.InwardExaggeration = val;
+                },
+                0, 5);
+
+
+            OutwardExaggeration = new JSONStorableFloat(
+                "Outward Exaggeration", 0,
+                (val) => {
+                    Animator.OutwardExaggeration = val;
+                },
+                0, 5);
+
+            InwardMax = new JSONStorableFloat("Inward Max", morph.min, (val) => {
+                Animator.InwardMax = val;
+            }, -5, 5);
+            OutwardMax = new JSONStorableFloat("Outward Max", morph.max, (val) => {
+                Animator.OutwardMax = val;
+            }, -5, 5);
+            Reverse = new JSONStorableBool("Reverse Direction?", false, (val) => {
+                Animator.IsInwardMorph = val;
+            });
+            Friction = new JSONStorableFloat("Friction", 1, 0, 1);
+
+            // TODO: easing
+
+            var _uiOnOffToggle = _plugin.CreateToggle(Enabled);
+            _uiOnOffToggle.backgroundColor = transparent;
+            _uiOnOffToggle.labelText.fontStyle = FontStyle.Bold;
+            var _uiS1 = _plugin.CreateSpacer(rightSide: true);
+            _uiS1.height = _uiOnOffToggle.height;
+
+            var _uiExaggerationIn  = _plugin.CreateSlider(InwardExaggeration);
+            var _uiExaggerationOut = _plugin.CreateSlider(OutwardExaggeration, rightSide: true);
+
+            var _uiMinMorphValue = _plugin.CreateSlider(InwardMax);
+            var _uiMaxMorphValue = _plugin.CreateSlider(OutwardMax, rightSide: true);
+
+            var _uiFriction = _plugin.CreateSlider(Friction);
+            var _uiReverse = _plugin.CreateToggle(Reverse, rightSide: true);
+            var _uiDelete = _plugin.CreateButton("Delete", rightSide: true);
+            _uiDelete.buttonColor = Color.red;
+            _uiDelete.button.onClick.AddListener(() => {
+                _plugin.DeleteMorphSettings(MorphName);
+            });
+
+            var _uiS2 = _plugin.CreateSpacer();
+            _uiS2.height = 50;
+            var _uiS3 = _plugin.CreateSpacer(rightSide: true);
+            _uiS3.height = 50 + 5;
+
+            _uiElements.Add(_uiOnOffToggle);
+            _uiElements.Add(_uiExaggerationIn);
+            _uiElements.Add(_uiExaggerationOut);
+            _uiElements.Add(_uiMinMorphValue);
+            _uiElements.Add(_uiMaxMorphValue);
+            _uiElements.Add(_uiFriction);
+            _uiElements.Add(_uiReverse);
+            _uiElements.Add(_uiDelete);
+            _uiElements.Add(_uiS1);
+            _uiElements.Add(_uiS2);
+            _uiElements.Add(_uiS3);
+
+            Animator.Morph.SetDefaultValue();
+        }
+
+        public static MorphSettings Create(ExtraAutoGenitals plugin, string morphName, bool isInwardMorph = false, float inwardMax = 0.5f, float outwardMax = 0.5f, float inwardExaggeration = 0, float outwardExaggeration = 0, float friction = 1, bool enabled = true) {
+            try
+            {
+                Atom atom = plugin.containingAtom;
+                DAZMorph morph = ((DAZCharacterSelector)atom.GetStorableByID("geometry")).morphsControlUI.GetMorphByDisplayName(morphName);
+                if(morph != null) {
+                    var s = new MorphSettings(plugin, morph);
+                    s.Reverse.val = isInwardMorph;
+                    s.Reverse.defaultVal = isInwardMorph;
+
+                    s.InwardMax.val = inwardMax;
+                    s.InwardMax.defaultVal = inwardMax;
+
+                    s.OutwardMax.val = outwardMax;
+                    s.OutwardMax.defaultVal = outwardMax;
+
+                    s.InwardExaggeration.val = inwardExaggeration;
+                    s.InwardExaggeration.defaultVal = inwardExaggeration;
+
+                    s.OutwardExaggeration.val = outwardExaggeration;
+                    s.OutwardExaggeration.defaultVal = outwardExaggeration;
+
+                    s.Friction.val = friction;
+                    s.Friction.defaultVal = friction;
+
+                    s.Enabled.val = enabled;
+                    s.Enabled.defaultVal = enabled;
+                    return s;
+                }
+                else {
+                    return null;
+                }
+            }
+            catch (Exception e)
+            {
+                SuperController.LogError(e.Message);
+                return null;
+            }
+
+        }
+
+        public void Destroy() {
+            Enabled.val = false;
+            foreach(var u in _uiElements) {
+                if(u is UIDynamicSlider) {
+                    _plugin.RemoveSlider(u as UIDynamicSlider);
+                }
+                else if(u is UIDynamicButton) {
+                    _plugin.RemoveButton(u as UIDynamicButton);
+                }
+                else if(u is UIDynamicToggle) {
+                    _plugin.RemoveToggle(u as UIDynamicToggle);
+                }
+                else {
+                    _plugin.RemoveSpacer(u);
+                }
+            }
         }
     }
 }
