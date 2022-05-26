@@ -44,6 +44,9 @@ namespace LFE
             _labiaTrigger = containingAtom.GetComponentsInChildren<CollisionTrigger>().FirstOrDefault(t => t.name == "LabiaTrigger");
             _labiaHandler = _labiaTrigger.gameObject.GetComponentInChildren<CollisionTriggerEventHandler>();
             _abdomen = containingAtom.freeControllers.FirstOrDefault(fc => fc.name == "abdomen2Control");
+            if(containingAtom.type != "Person") {
+                throw new Exception("This must be added to a Person");
+            }
 
             // header
             var morphControlUI = ((DAZCharacterSelector)containingAtom.GetStorableByID("geometry")).morphsControlUI;
@@ -369,14 +372,15 @@ namespace LFE
 
         public float? NextMorphValue(float? velocityRaw, float friction)
         {
+            // TODO: this is broken find a solution for adjusting the morph resting value that works
             // did the user change the morph by hand? allow it and set it as new resting
-            if(_morphLastSavedValue != MorphCurrent) {
-                MorphRestingValue = MorphCurrent;
-            }
+            // if(_morphLastSavedValue != MorphCurrent) {
+            //     MorphRestingValue = MorphCurrent;
+            // }
 
             friction = Mathf.Clamp(friction, 0, 1);
             var morphTargetMin = MorphRestingValue - (IsInwardMorph ? OutwardMax + OutwardExaggeration : InwardMax + InwardExaggeration);
-            var morphTargetMax = MorphRestingValue + (IsInwardMorph ? InwardMax + InwardMax : OutwardMax + OutwardExaggeration);
+            var morphTargetMax = MorphRestingValue + (IsInwardMorph ? InwardMax + InwardExaggeration : OutwardMax + OutwardExaggeration);
             var velocity = Mathf.Clamp(velocityRaw ?? 0, -1, 1);
 
             if (!Enabled || friction <= 0)

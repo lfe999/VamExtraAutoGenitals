@@ -3,7 +3,6 @@
 Move extra female genital morphs automatically.
 
 This pairs well with the [Auto Labia](https://hub.virtamate.com/resources/autolabia.139/) script and the built-in *Auto Female Genitals/Anus Morphs*
-Adjust the pupil size based on the best guess of the light hitting close to the eyes.
 
 ## Installing
 
