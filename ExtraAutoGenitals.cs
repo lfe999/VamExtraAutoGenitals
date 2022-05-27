@@ -154,6 +154,7 @@ namespace LFE
         public const string JSON_CONFIG_FRICTION = "Friction";
         public const string JSON_CONFIG_REVERSE = "Reverse";
         public const string JSON_CONFIG_ENABLED = "Enabled";
+        public const string JSON_CONFIG_RESTING = "Morph Resting Value";
 
         public const string JSON_V1_FRICTION = "Friction";
         public const string JSON_V1_IN_EXAG = "Inward Exaggeration";
@@ -184,6 +185,7 @@ namespace LFE
                         var outwardExaggeration = c[JSON_CONFIG_OUT_EXAG]?.AsFloat ?? 0;
                         var friction = c[JSON_CONFIG_FRICTION]?.AsFloat ?? 1;
                         var enabled = c[JSON_CONFIG_ENABLED]?.AsBool ?? true;
+                        float? morphRestingValue = c.HasKey(JSON_CONFIG_RESTING) ? c[JSON_CONFIG_RESTING]?.AsFloat : null;
 
                         var setting = MorphSettings.Create(
                             this, name,
@@ -193,7 +195,8 @@ namespace LFE
                             inwardMax: inwardMax,
                             outwardMax: outwardMax,
                             inwardExaggeration: inwardExaggeration,
-                            outwardExaggeration: outwardExaggeration
+                            outwardExaggeration: outwardExaggeration,
+                            morphRestingValue: morphRestingValue
                         );
                         if(setting != null) {
                             newSettings.Add(setting);
@@ -291,6 +294,7 @@ namespace LFE
                     config[JSON_CONFIG_IN_MAX].AsFloat = s.InwardMax.val;
                     config[JSON_CONFIG_OUT_MAX].AsFloat = s.OutwardMax.val;
                     config[JSON_CONFIG_REVERSE].AsBool = s.Reverse.val;
+                    config[JSON_CONFIG_RESTING].AsFloat = s.MorphRestingValue.val;
                     configs.Add(config);
                 }
             }
@@ -302,11 +306,11 @@ namespace LFE
 
         void OnDestroy()
         {
-            foreach (var a in _settings) { a?.Animator?.Morph?.SetDefaultValue(); }
+            foreach (var a in _settings) { a?.SetMorphToModelOriginal(); };
         }
 
         void OnDisable() {
-            foreach (var a in _settings) { a?.Animator?.Morph?.SetDefaultValue(); }
+            foreach (var a in _settings) { a?.SetMorphToModelOriginal(); };
         }
 
     }
@@ -458,6 +462,7 @@ namespace LFE
         public JSONStorableFloat Friction;
         public JSONStorableBool Reverse;
         public JSONStorableBool Enabled;
+        public JSONStorableFloat MorphRestingValue;
         public string MorphName;
         public LabiaAnimator Animator = null;
 
@@ -470,11 +475,17 @@ namespace LFE
 
             MorphName = morph.displayName;
 
-            Animator = LabiaAnimator.Create(plugin.containingAtom, morph.displayName, isInwardMorph: false, inwardMax: morph.min, outwardMax: morph.max);
+            MorphRestingValue = new JSONStorableFloat("Morph Resting Value", morph.morphValue, (val) => {
+                if(Animator != null) {
+                    Animator.MorphRestingValue = val;
+                }
+            }, -50, 50);
+
+            Animator = LabiaAnimator.Create(plugin.containingAtom, morph.displayName, isInwardMorph: false, inwardMax: morph.min, outwardMax: morph.max, morphRestingValue: MorphRestingValue.val);
 
             Enabled = new JSONStorableBool($"{morph.displayName}", true, (val) => {
                 Animator.Enabled = val;
-                Animator.Morph.SetDefaultValue();
+                SetMorphToModelOriginal();
             });
             InwardExaggeration = new JSONStorableFloat(
                 "Inward Exaggeration", 0,
@@ -541,10 +552,15 @@ namespace LFE
             _uiElements.Add(_uiS2);
             _uiElements.Add(_uiS3);
 
-            Animator.Morph.SetDefaultValue();
         }
 
-        public static MorphSettings Create(ExtraAutoGenitals plugin, string morphName, bool isInwardMorph = false, float inwardMax = 0.5f, float outwardMax = 0.5f, float inwardExaggeration = 0, float outwardExaggeration = 0, float friction = 1, bool enabled = true) {
+        public void SetMorphToModelOriginal() {
+            if(Animator?.Morph != null) {
+                Animator.Morph.morphValue = MorphRestingValue.val;
+            }
+        }
+
+        public static MorphSettings Create(ExtraAutoGenitals plugin, string morphName, float? morphRestingValue = null, bool isInwardMorph = false, float inwardMax = 0.5f, float outwardMax = 0.5f, float inwardExaggeration = 0, float outwardExaggeration = 0, float friction = 1, bool enabled = true) {
             try
             {
                 Atom atom = plugin.containingAtom;
@@ -571,6 +587,10 @@ namespace LFE
 
                     s.Enabled.val = enabled;
                     s.Enabled.defaultVal = enabled;
+
+                    s.MorphRestingValue.val = morphRestingValue ?? morph.morphValue;
+                    s.MorphRestingValue.defaultVal = s.MorphRestingValue.val;
+
                     return s;
                 }
                 else {
